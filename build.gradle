@@ -74,8 +74,8 @@ repositories {
     exclusiveContent {
         forRepository {
             maven {
-                name "caffeinemcRepository"
-                url "https://maven.caffeinemc.net/snapshots"
+                name = "caffeinemcRepository"
+                url = "https://maven.caffeinemc.net/snapshots"
             }
         }
         filter {
@@ -109,6 +109,7 @@ repositories {
             includeModuleByRegex("[^\\.]+", "nvidium")
         }
     }
+    mavenCentral()
 }
 
 
@@ -164,15 +165,6 @@ neoForge {
     }
 }
 
-def modRuntimeOnlyMsk = {arg->}
-if (!isInGHA) {
-    modRuntimeOnlyMsk = { arg ->
-        dependencies {
-            modRuntimeOnly(arg)
-        }
-    }
-}
-
 dependencies {
     // To change the versions see the gradle.properties file
     implementation "net.neoforged:neoforge:${project.neoforge_version}"
@@ -192,15 +184,6 @@ dependencies {
 
     // Reese's Sodium Options - required by SodiumOptionsAPI
     compileOnly("maven.modrinth:reeses-sodium-options:mc1.21.3-1.8.0+neoforge")
-
-    // Optional mod dependencies - commented out for initial port
-    // TODO: Add NeoForge versions when available
-    //compileOnly "drouarb:nvidium:0.4.1-beta4:1.21.6@jar"
-    //compileOnly("maven.modrinth:modmenu:17.0.0-alpha.1")
-    //compileOnly("maven.modrinth:iris:1.10.4+1.21.11-neoforge")
-    //compileOnly("maven.modrinth:chunky:1.4.54-neoforge")
-    //compileOnly("maven.modrinth:vivecraft:1.21.9-1.3.2-neoforge")
-    //compileOnly("maven.modrinth:flashback:rNCr1Rbs")
 }
 
 
@@ -220,8 +203,6 @@ java {
     // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
     // if it is present.
     // If you remove this line, sources will not be generated.
-
-
     //withSourcesJar()
 }
 
@@ -235,6 +216,9 @@ jar {
 task validateMixinConfig(type: Exec) {
     description = 'Validates mixin registration, exclusions, and configuration'
     group = 'verification'
+
+    // This line forces Python to use UTF-8 encoding, preventing the 'charmap' error
+    environment "PYTHONIOENCODING", "utf-8"
 
     commandLine 'python3', 'scripts/validate_mixin_config.py'
 
@@ -268,7 +252,13 @@ task validateMixins(type: Exec) {
     description = 'Validates that all mixins declared in JSON configs are present in the JAR'
     group = 'verification'
 
-    commandLine 'bash', 'scripts/validate_mixins.sh'
+    // Use a conditional to handle Windows vs Unix environments for the bash script
+    def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+    if (isWindows) {
+        commandLine 'cmd', '/c', 'echo Skipping Mixin validation - Bash environment not detected'
+    } else {
+        commandLine 'bash', 'scripts/validate_mixins.sh'
+    }
 
     // Only run if script exists
     onlyIf {
@@ -277,73 +267,12 @@ task validateMixins(type: Exec) {
 }
 
 // Run validations as part of build process
-compileJava.dependsOn validateMixinConfig       // Before compilation (config check)
-compileJava.dependsOn validateMixinSignatures   // Before compilation (signature check)
-build.dependsOn validateMixins                   // After JAR creation (content check)
-
-
-
-// NeoForge: makeExcludedRocksDB and processIncludeJars are Fabric Loom specific - removed
-// TODO: Implement NeoForge equivalent for RocksDB filtering if needed
-/*
-tasks.register('makeExcludedRocksDB', Zip) {
-    archiveExtension.set("jar")
-    entryCompression = ZipEntryCompression.STORED
-    destinationDirectory.set temporaryDir
-
-    dependsOn configurations.includeInternal
-
-    def files = configurations.includeInternal.incoming.getArtifacts().getArtifactFiles().filter {
-        it.name.startsWith('rocksdb')
-    }
-
-    from {->zipTree(files.first())}
-    archiveFileName.set(providers.provider{files.first().name})
-
-    exclude {
-        def file = it.name
-        if (file.endsWith(".jnilib")) {
-            return true
-        }
-        if (!file.endsWith(".so")) {
-            return false
-        }
-        return ["osx", "linux32", "musl", "s390x", "riscv64", "ppc64le", "aarch64"].any(file::contains)
-    }
-}
-
-processIncludeJars {
-    outputs.cacheIf {true}
-
-    dependsOn makeExcludedRocksDB
-    jars = jars.filter {!it.name.startsWith('rocksdb')}
-    jars.from(makeExcludedRocksDB)
-}
-*/
-
-// NeoForge: remapJar is handled by NeoGradle automatically
-// TODO: Re-implement git hash classifier for NeoForge jar task
-/*
-remapJar {
-    doFirst {
-        delete fileTree(getDestinationDirectory().get())
-    }
-
-    if (!isInGHA) {
-        def hash = gitCommitHash();
-        if (!hash.equals("<UnknownCommit>")) {
-            archiveClassifier.set(hash);
-        }
-    }
-}
-*/
+compileJava.dependsOn validateMixinConfig
+compileJava.dependsOn validateMixinSignatures
+build.dependsOn validateMixins
 
 project.ext.lwjglVersion = "3.3.3"
 project.ext.lwjglNatives = "natives-windows"
-
-repositories {
-    mavenCentral()
-}
 
 // Configuration to download LWJGL natives for repackaging
 configurations {
@@ -473,8 +402,6 @@ dependencies {
             prefer '3.49.1.0'
         }
     }
-    //implementation 'org.rocksdb:rocksdbjni:8.10.0'
-    //implementation 'redis.clients:jedis:5.1.0'
 }
 
 if (!isInGHA) {
@@ -482,12 +409,5 @@ if (!isInGHA) {
         maven {
             url = "https://pkgs.dev.azure.com/djtheredstoner/DevAuth/_packaging/public/maven/v1"
         }
-    }
-
-    dependencies {
-        /*
-        modRuntimeOnly('me.djtheredstoner:DevAuth-fabric:1.2.1') {
-            exclude group: 'net.fabricmc', module: 'fabric-loader'
-        }*/
     }
 }
